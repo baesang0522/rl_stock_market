@@ -1,5 +1,7 @@
 import gym
 import numpy as np
+import matplotlib
+import matplotlib.pyplot as plt
 
 from numpy import ndarray
 from sklearn.preprocessing import StandardScaler
@@ -124,10 +126,26 @@ class MultiStockTradingEnv(gym.Env):
         self._end_tick = len(self.prices) - 1
         return self.prices, self.signal_features
 
+    def _update_profit(self):
+        self._total_profit = (self.portfolio_value + self.reserve) / self.initial_amount
+
     def _get_observation(self):
-        pass
+        return np.nan_to_num(self.signal_features[:, (self._current_tick - self.window_size+1):self._current_tick+1, :])
+
+    def _update_history(self, info):
+        if not self.history:
+            self.history = {key: [] for key in info.keys()}
+
+        for key, value in info.items():
+            self.history[key].append(value)
 
     def step(self, actions):
+        """
+        강화학습 env 상에서 하는 행동의 결과를 정의하는 method
+
+        :param actions: agent 가 하는 행동
+        :return: 행동의 결과
+        """
         self._done = False
         self._current_tick += 1
         if self._current_tick == self._end_tick:
@@ -148,6 +166,58 @@ class MultiStockTradingEnv(gym.Env):
         next_positions = np.sign(actions) * norm_margin_pos
         change_in_positions = next_positions - self._position
         actions_in_market = np.divide(change_in_positions, current_prices_for_division).astype(int)
+
+        new_portfolio = actions_in_market + self.portfolio
+        new_pv = sum(new_portfolio*current_prices)
+        new_reserve = self.margin - new_pv
+        profit = (new_pv + new_reserve) - (self.portfolio_value + self.reserve)
+        cost = self.trade_cost * sum(abs(np.sign(actions_in_market)))
+
+        self._position = next_positions
+        self.portfolio = new_portfolio
+        self.portfolio_value = new_pv
+        self.reserve = new_reserve - cost
+
+        step_reward = profit - cost
+        self._total_reward += self.reward_scaling * step_reward
+        self.rewards.append(self._total_reward)
+        self.pvs.append(new_pv)
+        self._update_profit()
+        self._position = next_positions
+        self._position_history.append(self._position)
+        info = dict(total_reward=self._total_reward, total_profit=self._total_profit,)
+        self._update_history(info)
+
+        if self.margin < 0:
+            self._done = True
+
+        return self._get_observation(), step_reward, self._done, info
+
+    def render(self, mode='human'):
+        if self._first_rendering:
+            self._first_rendering = False
+        plt.cla()
+        plt.plot(self.pvs)
+        plt.suptitle(
+            f"Total Reward: {self._total_reward:.6f}" + ' ~ ' +
+            f"Total Profit: {self._total_profit:.6f}"
+        )
+        plt.pause(0.01)
+
+    def render_all(self, mode='human'):
+        plt.plot(self.pvs)
+
+        plt.suptitle(
+            f"Total Reward: {self._total_reward:.6f}" + ' ~ ' +
+            f"Total Profit: {self._total_profit:.6f}"
+        )
+
+
+
+
+
+
+
 
 
 
