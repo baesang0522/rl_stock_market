@@ -7,16 +7,15 @@ from numpy import ndarray
 from sklearn.preprocessing import StandardScaler
 
 
-# noinspection PyTypeChecker
 class MultiStockTradingEnv(gym.Env):
     """
-
+    강화학습 학습 환경 Class
     """
     metadata = {"render.modes": ["humans"]}
 
     def __init__(self, dfs, price_df, initial_amount, trade_cost, num_features, num_stocks,
                  window_size, frame_bound, scalers=None, tech_indicator_list=[], reward_scaling=1e-5,
-                 representative=None, supresention_rate=0.66):
+                 representative=None, suppression_rate=0.66):
         """
         :param dfs: 기업별 가상화폐별 raw 데이터를 담고있는 리스트
         :param price_df: 기업별 가상화폐별 종가를 담고있는 리스트
@@ -29,8 +28,8 @@ class MultiStockTradingEnv(gym.Env):
         :param scalers: 각각의 주식을 scaling 할 scaler 리스트
         :param tech_indicator_list: 주식 기술지표 리스트
         :param reward_scaling: 각 주식 reward의 scaling 값
-        :param representative:
-        :param supresention_rate:
+        :param representative: 대표 주식. preprocess 시 필요
+        :param suppression_rate: stock trade 거래 제한 비율. 0.66 으로 설정 시 가장 확실한 0.34 의 stock 만 거래하게 됨
         """
         if len(tech_indicator_list) != 0:
             num_features = len(tech_indicator_list)
@@ -71,7 +70,7 @@ class MultiStockTradingEnv(gym.Env):
             self.scalers = scalers
 
         self.representative = representative
-        self.suppression_rate = supresention_rate
+        self.suppression_rate = suppression_rate
 
     def reset(self, **kwargs):
         """
@@ -101,11 +100,10 @@ class MultiStockTradingEnv(gym.Env):
         :return: window size로 자른 종가, 정규화되어 윈도우 사이즈로 잘린 기술적 지표
         """
         signal_features = []
+        start = self.frame_bound[0] - self.window_size
+        end = self.frame_bound[1]
         for idx in range(self.assets):
             df = self.dfs[idx]
-            start = self.frame_bound[0] - self.window_size
-            end = self.frame_bound[1]
-
             if self.scalers[idx]:
                 current_scaler = self.scalers[idx]
                 signal_features_i = current_scaler.transform(df.loc[:, self.tech_indicators])[start:end]
@@ -120,7 +118,7 @@ class MultiStockTradingEnv(gym.Env):
         if self.representative:
             self.representative = self.price_df.loc[:, self.representative].to_numpy()[start:end]
         else:
-            self.representative = self.price_df.loc[:, 'SENSEX'].to_numpy()[start:end]
+            self.representative = self.price_df.loc[:, 'ABC_data'].to_numpy()[start:end]
 
         self.signal_features = np.array(signal_features)
         self._end_tick = len(self.prices) - 1
@@ -157,7 +155,7 @@ class MultiStockTradingEnv(gym.Env):
         current_prices_for_division[current_prices_for_division == 0] = 1e9
 
         abs_portfolio_dist = abs(actions)
-        N = int(np.round(abs_portfolio_dist.size*0.66))
+        N = int(np.round(abs_portfolio_dist.size*self.suppression_rate))
         abs_portfolio_dist[np.argpartition(abs_portfolio_dist, kth=N)[:N]] = 0
 
         self.margin = self.reserve + sum(self.portfolio * current_prices)
@@ -211,6 +209,24 @@ class MultiStockTradingEnv(gym.Env):
             f"Total Reward: {self._total_reward:.6f}" + ' ~ ' +
             f"Total Profit: {self._total_profit:.6f}"
         )
+
+    def close(self):
+        plt.close()
+
+    def save_rendering(self, filepath):
+        plt.savefig(filepath)
+
+    def pause_rendering(self):
+        plt.show()
+
+    def _process_data(self):
+        raise NotImplementedError
+
+    def _calculate_reward(self, action):
+        raise NotImplementedError
+
+    def max_possible_profit(self):
+        raise NotImplementedError
 
 
 
