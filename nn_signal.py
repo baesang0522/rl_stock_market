@@ -18,7 +18,7 @@ class AttentionBlock(nn.Module):
     def forward(self, inputs):
         inputs_t = torch.transpose(inputs, 2, 1) # batch_size, input_dim, time_step
         attention_weight = self.attention_matrix(inputs_t)
-        attention_probs = F.softmax(attention_weight, dim=1)
+        attention_probs = F.softmax(attention_weight, dim=-1)
         attention_probs = torch.transpose(attention_probs, 2, 1)
         attention_vec = torch.mul(attention_probs, inputs)
         attention_vec = torch.sum(attention_vec, dim=1)
