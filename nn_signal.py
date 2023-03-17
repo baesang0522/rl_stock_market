@@ -3,7 +3,8 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 from torch import nn
-from torch_geometric.nn import GATv2Conv
+from torch_geometric.nn import GATv2Conv, BatchNorm
+from capsule_layer import CapsuleLinear
 from config import config
 
 config = config[os.environ["ENV"]]
@@ -48,8 +49,28 @@ class CapGATattentionGRU(nn.Module):
         if self.use_gru:
             self.temporal_encoder = nn.GRU(input_dim * hidden_dim, input_dim * hidden_dim, num_layers=2,
                                            bidirectional=False)
+        self.TBNLayer = torch.nn.BatchNorm1d(time_step, track_running_stats=False)
 
         self.inner_gat0 = GATv2Conv(hidden_dim, hidden_dim)
         self.inner_gat1 = GATv2Conv(hidden_dim, hidden_dim)
         self.attention = AttentionBlock(12, hidden_dim)
+        self.caps_module = CapsuleLinear(out_capsules=self.input_dim,
+                                         in_length=2*hidden_dim,
+                                         out_length=hidden_dim,
+                                         in_capsules=None,
+                                         routing_type='dynamic',
+                                         num_iterations=3)
+        self.fusion = nn.Linear(hidden_dim, input_dim)
+
+    def forward(self, inputs):
+        inputs = torch.nan_to_num(inputs, nan=0.0, posinf=1.0)
+        if self.use_gru:
+            embedding = torch.relu(self.temporal_encoder(inputs.view(-1, self.time_step, self.input_dim*self.dim)))
+        att_vector, _ = self.attention(embedding) # (100, dim)
+        batch = att_vector.shape[0]
+        att_vector = torch.tanh(att_vector.view(-1, self.input_dim, self.dim))
+        x = att_vector.view(-1, self.dim)
+
+        inner_graph_embedding = torch.relu(self.inner_gat0(x, self.inner_edge))
+
 
