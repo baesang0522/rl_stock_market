@@ -64,13 +64,19 @@ class CapGATattentionGRU(nn.Module):
 
     def forward(self, inputs):
         inputs = torch.nan_to_num(inputs, nan=0.0, posinf=1.0)
-        if self.use_gru:
-            embedding = torch.relu(self.temporal_encoder(inputs.view(-1, self.time_step, self.input_dim*self.dim)))
+        embedding = torch.relu(self.temporal_encoder(inputs.view(-1, self.time_step, self.input_dim*self.dim)))
         att_vector, _ = self.attention(embedding) # (100, dim)
         batch = att_vector.shape[0]
         att_vector = torch.tanh(att_vector.view(-1, self.input_dim, self.dim))
         x = att_vector.view(-1, self.dim)
 
         inner_graph_embedding = torch.relu(self.inner_gat0(x, self.inner_edge))
+        inner_graph_embedding0 = torch.relu(self.inner_gat1(inner_graph_embedding, self.inner_edge.view(2, -1)))
+        inner_graph_embedding = torch.add(inner_graph_embedding, inner_graph_embedding0)
+        inner_graph_embedding = inner_graph_embedding.view(-1, self.input_dim, self.dim)
+        fusion_vec = torch.cat((att_vector, inner_graph_embedding), dim=-1)
+        caps_out, _ = self.caps_module(fusion_vec)
+        out_vec = torch.tanh(self.fusion(torch.relu(caps_out)))
+        return out_vec
 
 
